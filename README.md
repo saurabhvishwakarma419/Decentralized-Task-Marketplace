@@ -38,4 +38,5 @@ We aim to empower workers globally by providing access to a permissionless platf
 
 5. **Skill Verification**: Integrate with decentralized identity solutions to verify freelancer skills and credentials
 
-<img width="1536" height="1024" alt="ChatGPT Image Nov 24, 2025, 04_57_57 PM" src="https://github.com/user-attachments/assets/51d3c9c6-6402-44cd-adab-fbc2d72b1ff1" />
+<img width="1366" height="462" alt="Screenshot (102)" src="https://github.com/user-attachments/assets/9f0b9827-cd35-4f03-b24d-64b7bcc37cd8" />
+
