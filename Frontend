@@ -1,1 +1,397 @@
+import React, { useState, useEffect } from 'react';
+import { Briefcase, Users, CheckCircle, DollarSign, Award, Plus, Search } from 'lucide-react';
 
+// Contract ABI (simplified - add your full ABI here)
+const CONTRACT_ABI = [
+  "function createTask(string memory _description) external payable",
+  "function assignFreelancer(uint256 _taskId) external",
+  "function completeTask(uint256 _taskId) external",
+  "function getTask(uint256 _taskId) external view returns (uint256 id, address employer, address freelancer, string memory description, uint256 reward, bool isCompleted, bool isPaid)",
+  "function taskCounter() external view returns (uint256)",
+  "function getReputation(address _user) external view returns (uint256)",
+  "event TaskCreated(uint256 indexed taskId, address indexed employer, string description, uint256 reward)",
+  "event TaskAssigned(uint256 indexed taskId, address indexed freelancer)",
+  "event TaskCompleted(uint256 indexed taskId)",
+  "event PaymentReleased(uint256 indexed taskId, address indexed freelancer, uint256 amount)"
+];
+
+const CONTRACT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3"; // Update with your deployed address
+
+export default function TaskMarketplace() {
+  const [account, setAccount] = useState('');
+  const [contract, setContract] = useState(null);
+  const [tasks, setTasks] = useState([]);
+  const [taskCounter, setTaskCounter] = useState(0);
+  const [reputation, setReputation] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('all');
+  
+  // Form states
+  const [taskDescription, setTaskDescription] = useState('');
+  const [taskReward, setTaskReward] = useState('');
+
+  // Connect wallet
+  const connectWallet = async () => {
+    if (typeof window.ethereum !== 'undefined') {
+      try {
+        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+        setAccount(accounts[0]);
+        
+        // Initialize ethers
+        const { ethers } = window;
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
+        const signer = provider.getSigner();
+        const contractInstance = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+        setContract(contractInstance);
+        
+        // Load initial data
+        await loadTasks(contractInstance);
+        await loadReputation(contractInstance, accounts[0]);
+      } catch (error) {
+        console.error('Error connecting wallet:', error);
+        alert('Failed to connect wallet');
+      }
+    } else {
+      alert('Please install MetaMask!');
+    }
+  };
+
+  // Load all tasks
+  const loadTasks = async (contractInstance) => {
+    try {
+      const counter = await contractInstance.taskCounter();
+      setTaskCounter(counter.toNumber());
+      
+      const loadedTasks = [];
+      for (let i = 1; i <= counter.toNumber(); i++) {
+        const task = await contractInstance.getTask(i);
+        loadedTasks.push({
+          id: task.id.toNumber(),
+          employer: task.employer,
+          freelancer: task.freelancer,
+          description: task.description,
+          reward: window.ethers.utils.formatEther(task.reward),
+          isCompleted: task.isCompleted,
+          isPaid: task.isPaid
+        });
+      }
+      setTasks(loadedTasks);
+    } catch (error) {
+      console.error('Error loading tasks:', error);
+    }
+  };
+
+  // Load user reputation
+  const loadReputation = async (contractInstance, address) => {
+    try {
+      const rep = await contractInstance.getReputation(address);
+      setReputation(rep.toNumber());
+    } catch (error) {
+      console.error('Error loading reputation:', error);
+    }
+  };
+
+  // Create new task
+  const createTask = async () => {
+    if (!taskDescription || !taskReward) {
+      alert('Please fill in all fields');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { ethers } = window;
+      const rewardInWei = ethers.utils.parseEther(taskReward);
+      const tx = await contract.createTask(taskDescription, { value: rewardInWei });
+      await tx.wait();
+      
+      alert('Task created successfully!');
+      setTaskDescription('');
+      setTaskReward('');
+      await loadTasks(contract);
+    } catch (error) {
+      console.error('Error creating task:', error);
+      alert('Failed to create task');
+    }
+    setLoading(false);
+  };
+
+  // Assign freelancer to task
+  const assignToTask = async (taskId) => {
+    setLoading(true);
+    try {
+      const tx = await contract.assignFreelancer(taskId);
+      await tx.wait();
+      
+      alert('Successfully assigned to task!');
+      await loadTasks(contract);
+    } catch (error) {
+      console.error('Error assigning to task:', error);
+      alert('Failed to assign to task');
+    }
+    setLoading(false);
+  };
+
+  // Complete task
+  const completeTaskFunc = async (taskId) => {
+    setLoading(true);
+    try {
+      const tx = await contract.completeTask(taskId);
+      await tx.wait();
+      
+      alert('Task completed and payment released!');
+      await loadTasks(contract);
+      await loadReputation(contract, account);
+    } catch (error) {
+      console.error('Error completing task:', error);
+      alert('Failed to complete task');
+    }
+    setLoading(false);
+  };
+
+  // Filter tasks
+  const filteredTasks = tasks.filter(task => {
+    if (activeTab === 'all') return true;
+    if (activeTab === 'available') return task.freelancer === '0x0000000000000000000000000000000000000000' && !task.isCompleted;
+    if (activeTab === 'myTasks') return task.employer.toLowerCase() === account.toLowerCase();
+    if (activeTab === 'myWork') return task.freelancer.toLowerCase() === account.toLowerCase();
+    if (activeTab === 'completed') return task.isCompleted;
+    return true;
+  });
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+      {/* Header */}
+      <header className="bg-white shadow-md">
+        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center space-x-3">
+              <Briefcase className="h-8 w-8 text-indigo-600" />
+              <h1 className="text-2xl font-bold text-gray-900">Task Marketplace</h1>
+            </div>
+            
+            {!account ? (
+              <button
+                onClick={connectWallet}
+                className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition font-medium"
+              >
+                Connect Wallet
+              </button>
+            ) : (
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-2 bg-indigo-50 px-4 py-2 rounded-lg">
+                  <Award className="h-5 w-5 text-indigo-600" />
+                  <span className="font-medium text-indigo-900">Rep: {reputation}</span>
+                </div>
+                <div className="text-sm bg-gray-100 px-4 py-2 rounded-lg">
+                  <span className="font-medium text-gray-700">
+                    {account.slice(0, 6)}...{account.slice(-4)}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+        {!account ? (
+          <div className="text-center py-20">
+            <Briefcase className="h-20 w-20 text-indigo-300 mx-auto mb-4" />
+            <h2 className="text-3xl font-bold text-gray-900 mb-2">Welcome to Task Marketplace</h2>
+            <p className="text-gray-600 mb-8">Connect your wallet to get started</p>
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {/* Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white rounded-xl shadow-md p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-gray-500 text-sm">Total Tasks</p>
+                    <p className="text-3xl font-bold text-gray-900">{taskCounter}</p>
+                  </div>
+                  <Briefcase className="h-12 w-12 text-indigo-500" />
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-xl shadow-md p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-gray-500 text-sm">Available Tasks</p>
+                    <p className="text-3xl font-bold text-gray-900">
+                      {tasks.filter(t => t.freelancer === '0x0000000000000000000000000000000000000000' && !t.isCompleted).length}
+                    </p>
+                  </div>
+                  <Search className="h-12 w-12 text-green-500" />
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-xl shadow-md p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-gray-500 text-sm">Your Reputation</p>
+                    <p className="text-3xl font-bold text-gray-900">{reputation}</p>
+                  </div>
+                  <Award className="h-12 w-12 text-yellow-500" />
+                </div>
+              </div>
+            </div>
+
+            {/* Create Task Form */}
+            <div className="bg-white rounded-xl shadow-md p-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center">
+                <Plus className="h-6 w-6 mr-2 text-indigo-600" />
+                Create New Task
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Task Description
+                  </label>
+                  <textarea
+                    value={taskDescription}
+                    onChange={(e) => setTaskDescription(e.target.value)}
+                    placeholder="Describe the task in detail..."
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    rows="3"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Reward (ETH)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={taskReward}
+                    onChange={(e) => setTaskReward(e.target.value)}
+                    placeholder="0.5"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  />
+                </div>
+                
+                <div className="flex items-end">
+                  <button
+                    onClick={createTask}
+                    disabled={loading}
+                    className="w-full bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition font-medium disabled:bg-gray-400"
+                  >
+                    {loading ? 'Creating...' : 'Create Task'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Tabs */}
+            <div className="bg-white rounded-xl shadow-md">
+              <div className="border-b border-gray-200">
+                <nav className="flex space-x-8 px-6" aria-label="Tabs">
+                  {['all', 'available', 'myTasks', 'myWork', 'completed'].map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveTab(tab)}
+                      className={`py-4 px-1 border-b-2 font-medium text-sm capitalize ${
+                        activeTab === tab
+                          ? 'border-indigo-500 text-indigo-600'
+                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      }`}
+                    >
+                      {tab === 'myTasks' ? 'My Tasks' : tab === 'myWork' ? 'My Work' : tab}
+                    </button>
+                  ))}
+                </nav>
+              </div>
+
+              {/* Tasks List */}
+              <div className="p-6 space-y-4">
+                {filteredTasks.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Briefcase className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                    <p className="text-gray-500">No tasks found</p>
+                  </div>
+                ) : (
+                  filteredTasks.map((task) => (
+                    <div key={task.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-lg transition">
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2 mb-2">
+                            <span className="text-sm font-medium text-gray-500">Task #{task.id}</span>
+                            {task.isCompleted && (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                <CheckCircle className="h-3 w-3 mr-1" />
+                                Completed
+                              </span>
+                            )}
+                            {task.freelancer !== '0x0000000000000000000000000000000000000000' && !task.isCompleted && (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                In Progress
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-gray-900 font-medium mb-2">{task.description}</p>
+                          <div className="flex items-center space-x-4 text-sm text-gray-600">
+                            <span className="flex items-center">
+                              <Users className="h-4 w-4 mr-1" />
+                              Employer: {task.employer.slice(0, 6)}...{task.employer.slice(-4)}
+                            </span>
+                            {task.freelancer !== '0x0000000000000000000000000000000000000000' && (
+                              <span className="flex items-center">
+                                <Users className="h-4 w-4 mr-1" />
+                                Freelancer: {task.freelancer.slice(0, 6)}...{task.freelancer.slice(-4)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2 ml-4">
+                          <DollarSign className="h-5 w-5 text-green-600" />
+                          <span className="text-2xl font-bold text-green-600">{task.reward} ETH</span>
+                        </div>
+                      </div>
+
+                      <div className="flex space-x-3">
+                        {task.freelancer === '0x0000000000000000000000000000000000000000' && 
+                         !task.isCompleted && 
+                         task.employer.toLowerCase() !== account.toLowerCase() && (
+                          <button
+                            onClick={() => assignToTask(task.id)}
+                            disabled={loading}
+                            className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition text-sm font-medium disabled:bg-gray-400"
+                          >
+                            Assign Me
+                          </button>
+                        )}
+                        
+                        {task.employer.toLowerCase() === account.toLowerCase() && 
+                         task.freelancer !== '0x0000000000000000000000000000000000000000' && 
+                         !task.isCompleted && (
+                          <button
+                            onClick={() => completeTaskFunc(task.id)}
+                            disabled={loading}
+                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition text-sm font-medium disabled:bg-gray-400"
+                          >
+                            Mark Complete & Pay
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Footer */}
+      <footer className="bg-white mt-12 border-t border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+          <p className="text-center text-gray-500 text-sm">
+            Decentralized Task Marketplace - Built on Ethereum
+          </p>
+        </div>
+      </footer>
+    </div>
+  );
+}
